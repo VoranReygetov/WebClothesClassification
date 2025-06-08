@@ -1,4 +1,3 @@
-<!-- templates/home.html -->
 <!DOCTYPE html>
 <html lang="uk">
 <head>
@@ -21,7 +20,7 @@
       box-shadow: 0 0 15px rgba(0,0,0,0.1);
     }
 
-    h1 {
+    h1, h2 {
       text-align: center;
       color: #333;
     }
@@ -30,6 +29,7 @@
       display: flex;
       flex-direction: column;
       gap: 15px;
+      margin-bottom: 30px;
     }
 
     input[type="file"] {
@@ -57,18 +57,33 @@
       border: 1px solid #ccc;
       border-radius: 5px;
     }
-
   </style>
 </head>
 <body>
   <div class="container">
     <h1>Класифікація одягу</h1>
-    <form method="POST" enctype="multipart/form-data" action="{% url 'detect' %}">
-      {% csrf_token %}
-      <label>Оберіть зображення:</label>
-      <input type="file" name="image" accept="image/*" onchange="previewImage(this)" required>
-      <img id="preview" src="#" alt="Прев'ю зображення">
-      <button type="submit">Виконати класифікацію</button>
+
+    <!-- Зображення -->
+    <form method="POST" enctype="multipart/form-data" action="{% url 'detect_image' %}">
+        {% csrf_token %}
+        <label>Оберіть зображення:</label>
+        <input type="file" name="image" accept="image/*" onchange="previewImage(this)" required>
+        <img id="preview" src="#" alt="Прев'ю зображення">
+        <button type="submit">Виконати класифікацію</button>
+    </form>
+
+    <!-- Відео -->
+    <h2>Аналіз відео</h2>
+    <form method="POST" enctype="multipart/form-data" action="{% url 'detect_video' %}">
+        {% csrf_token %}
+        <label>Оберіть відеофайл (mp4):</label>
+        <input type="file" name="video" accept="video/*" required>
+        <button type="submit">Аналізувати</button>
+    </form>
+        <form method="POST" enctype="multipart/form-data" action="{% url 'stream_video' %}">
+        {% csrf_token %}
+        <label>Потокове відео</label>
+        <button type="submit" name="live_stream" value="1">Почати стрімінг</button>
     </form>
   </div>
 

@@ -1,8 +1,14 @@
 from django.shortcuts import render
-from django.http import JsonResponse
+from django.conf import settings
+from django.http import JsonResponse, StreamingHttpResponse
 from django.core.files.storage import FileSystemStorage
 from detection.inference import run_detection
-import os
+from detection.video import analyze_video
+from django.shortcuts import render, redirect
+import os, json
+import logging
+
+logger = logging.getLogger(__name__)
 
 def home(request):
     return render(request, 'home.html')
@@ -44,3 +50,44 @@ def detect(request):
         context['predictions'] = boxes
 
     return render(request, 'result.html', context)
+
+
+def detect_video(request):
+    context = {}
+
+    if request.method == 'POST':
+        if 'video' in request.FILES:
+            video = request.FILES['video']
+            fs = FileSystemStorage()
+            filename = fs.save(video.name, video)
+            video_path = fs.path(filename)
+
+            result = analyze_video(video_path)
+            summary_data = result
+            result_path = result["video_name"]
+
+            table_data = []
+            for class_name, total in summary_data['summary'].items():
+                row = {
+                    'class': class_name,
+                    'total_presence': total,
+                    'frames': []
+                }
+                for chunk in summary_data['chunks']:
+                    if class_name in chunk['presence']:
+                        row['frames'].append({
+                            'start': chunk['start'],
+                            'end': chunk['end'],
+                            'presence': chunk['presence'][class_name]
+                        })
+                table_data.append(row)
+
+            context['video_url'] = '/' + result_path.replace('\\', '/')
+            context['summary'] = table_data
+            context['summary_json'] = json.dumps(summary_data, indent=2, ensure_ascii=False)
+
+    return render(request, 'video_result.html', context)
+
+
+def stream_video(request):
+    return render(request, 'stream.html')

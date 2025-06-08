@@ -1,0 +1,179 @@
+<!-- templates/video_result.html -->
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8">
+  <title>Результати аналізу відео</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f9f9f9;
+      padding: 20px;
+    }
+
+    .container {
+      max-width: 800px;
+      margin: auto;
+      background: white;
+      padding: 30px;
+      border-radius: 10px;
+      box-shadow: 0 0 15px rgba(0,0,0,0.1);
+    }
+
+    h1 {
+      text-align: center;
+      margin-bottom: 20px;
+    }
+
+    video {
+      width: 100%;
+      margin-bottom: 20px;
+      border-radius: 10px;
+    }
+
+    .switch-container {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+
+    .switch-label {
+      font-size: 14px;
+    }
+
+    .toggle-switch {
+      position: relative;
+      width: 50px;
+      height: 26px;
+    }
+
+    .toggle-switch input {
+      display: none;
+    }
+
+    .slider {
+      position: absolute;
+      cursor: pointer;
+      background-color: #ccc;
+      border-radius: 30px;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      transition: 0.4s;
+    }
+
+    .slider:before {
+      content: "";
+      position: absolute;
+      height: 20px;
+      width: 20px;
+      left: 3px;
+      bottom: 3px;
+      background-color: white;
+      border-radius: 50%;
+      transition: 0.4s;
+    }
+
+    input:checked + .slider {
+      background-color: #4CAF50;
+    }
+
+    input:checked + .slider:before {
+      transform: translateX(24px);
+    }
+
+    pre {
+      background: #f1f1f1;
+      padding: 10px;
+      border-radius: 5px;
+      overflow-x: auto;
+      white-space: pre-wrap;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+    }
+
+    th, td {
+      padding: 8px 12px;
+      border: 1px solid #ccc;
+      text-align: left;
+    }
+
+    th {
+      background-color: #f3f3f3;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Результати аналізу відео</h1>
+
+      {% if video_url %}
+        <video controls>
+            <source src="{{ video_url }}" type="video/mp4">
+            Ваш браузер не підтримує відтворення відео.
+        </video>
+      {% else %}
+        <p>Відео не доступне.</p>
+      {% endif %}
+
+    <div class="switch-container">
+      <span class="switch-label">JSON-вивід</span>
+      <label class="toggle-switch">
+        <input type="checkbox" id="outputToggle">
+        <span class="slider"></span>
+      </label>
+    </div>
+
+    <div id="outputText">
+      <strong>Відсоток присутності кожної речі:</strong>
+      <table>
+        <thead>
+          <tr>
+            <th>Клас</th>
+            <th>Загальна присутність (%)</th>
+            <th>По таймфреймах (кожні 10 сек)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in summary %}
+            <tr>
+              <td>{{ item.class }}</td>
+              <td>{{ item.total_presence|floatformat:2 }}</td>
+              <td>
+                {% for frame in item.frames %}
+                  {{ frame.start }}–{{ frame.end }}с: {{ frame.presence|floatformat:2 }}%<br>
+                {% endfor %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <pre id="jsonOutput" style="display:none;">{{ summary_json|safe }}</pre>
+  </div>
+
+  <script>
+    const toggle = document.getElementById('outputToggle');
+    const outputText = document.getElementById('outputText');
+    const jsonOutput = document.getElementById('jsonOutput');
+
+    toggle.addEventListener('change', () => {
+      if (toggle.checked) {
+        outputText.style.display = 'none';
+        jsonOutput.style.display = 'block';
+      } else {
+        outputText.style.display = 'block';
+        jsonOutput.style.display = 'none';
+      }
+    });
+  </script>
+</body>
+</html>

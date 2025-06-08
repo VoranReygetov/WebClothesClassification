@@ -1,8 +1,9 @@
 from ultralytics import YOLO
 import os
 import uuid
+import cv2
 
-model = YOLO("detection/best.pt") 
+model = YOLO("D:\\Program Files\\KPI\\WebClothesClassification\\clothes_classifier\\detection\\best.pt")
 
 def run_detection(image_path):
     run_id = 'run_' + str(uuid.uuid4())[:8]
@@ -28,3 +29,4 @@ def run_detection(image_path):
         })
 
     return result_path, class_names, boxes
+
