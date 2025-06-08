@@ -1,101 +1,32 @@
-<!DOCTYPE html>
-<html lang="uk">
-<head>
-    <meta charset="UTF-8">
-    <title>Живий стрім</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            background: #f7f7f7;
-            margin: 0;
-            padding: 20px;
-        }
-        .container {
-            max-width: 1200px;
-            margin: auto;
-            background: white;
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 0 10px rgba(0,0,0,0.1);
-            display: flex;
-            gap: 20px;
-        }
-        .video-container {
-            flex: 3;
-            position: relative;
-        }
-        .stats-container {
-            flex: 1;
-            background: #f8f8f8;
-            padding: 15px;
-            border-radius: 8px;
-            max-height: 80vh;
-            overflow-y: auto;
-        }
-        h1 {
-            color: #333;
-            text-align: center;
-        }
-        video {
-            width: 100%;
-            max-width: 640px;
-            border: 2px solid #333;
-            border-radius: 8px;
-            margin-bottom: 10px;
-        }
-        canvas {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            max-width: 640px;
-            height: auto;
-            border-radius: 8px;
-            pointer-events: none;
-        }
-        .stats-title {
-            font-size: 18px;
-            font-weight: bold;
-            margin-bottom: 10px;
-        }
-        .stats-item {
-            margin: 5px 0;
-            font-size: 16px;
-        }
-        #debug {
-            color: red;
-            font-size: 14px;
-            margin-top: 10px;
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="video-container">
-            <h1>Реальний час: Класифікація одягу</h1>
-            <video id="video" style="max-height: 550px;" autoplay playsinline></video>
-            <canvas id="annotationCanvas"></canvas>
-            <button onclick="stopStream()">Зупинити</button>
-            <div id="debug">Initializing...</div>
-        </div>
-        <div class="stats-container">
-            <div class="stats-title">Загальна статистика</div>
-            <div id="summary-stats">Очікування даних...</div>
-            <div class="stats-title">Поточний кадр</div>
-            <div id="frame-stats">Очікування даних...</div>
-        </div>
-    </div>
+<!-- templates/stream.html -->
+{% extends 'base.html' %}
 
+{% block title %}Живий стрім{% endblock %}
+
+{% block content %}
+    <div class="video-container">
+        <h1>Реальний час: Класифікація одягу</h1>
+        <video id="video" style="max-height: 550px;" autoplay playsinline></video>
+        <canvas id="annotationCanvas"></canvas> <!-- Залишаємо canvas для малювання -->
+        <button onclick="stopStream()">Зупинити</button>
+        <div id="debug">Initializing...</div>
+    </div>
+    <div class="stats-container">
+        <div class="stats-title">Загальна статистика</div>
+        <div id="summary-stats">Очікування даних...</div>
+        <div class="stats-title">Поточний кадр</div>
+        <div id="predictions-container">Очікування прогнозів...</div> <!-- Контейнер для JSON -->
+    </div>
+{% endblock %}
+
+{% block extra_scripts %}
     <script>
         const video = document.getElementById('video');
         const annotationCanvas = document.getElementById('annotationCanvas');
         const ctx = annotationCanvas.getContext('2d');
         const summaryStats = document.getElementById('summary-stats');
-        const frameStats = document.getElementById('frame-stats');
+        const predictionsContainer = document.getElementById('predictions-container');
         const debug = document.getElementById('debug');
-        const webcamVideo = document.createElement('video');
-        webcamVideo.autoplay = true;
-        webcamVideo.muted = true;
 
         // WebSocket connection
         const ws = new WebSocket(`ws://${window.location.host}/ws/stream/`);
@@ -115,9 +46,8 @@
         // Webcam access and display
         navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 640 } })
             .then(stream => {
-                video.srcObject = stream; // Прямий потік на <video>
+                video.srcObject = stream;
                 debug.textContent = 'Webcam accessed';
-                // Відправка кадрів на сервер
                 setInterval(() => {
                     if (!video.videoWidth) return;
                     const tempCanvas = document.createElement('canvas');
@@ -143,7 +73,6 @@
                 reader.onload = function() {
                     const arrayBuffer = reader.result;
                     const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
-                    // Зараз лише логуємо, щоб перевірити
                     console.log('Received processed frame');
                     debug.textContent = 'Received frame';
                 };
@@ -165,14 +94,8 @@
                     } else {
                         summaryStats.innerHTML = 'Немає даних';
                     }
-                    if (data.frame && data.frame.presence) {
-                        frameStats.innerHTML = Object.entries(data.frame.presence)
-                            .map(([cls, percent]) => `<div class="stats-item">${cls}: ${percent}%</div>`)
-                            .join('');
-                    } else {
-                        frameStats.innerHTML = 'Немає даних';
-                    }
                     if (data.annotations) {
+                        // Малюємо анотації на canvas
                         annotationCanvas.width = video.videoWidth;
                         annotationCanvas.height = video.videoHeight;
                         ctx.clearRect(0, 0, annotationCanvas.width, annotationCanvas.height);
@@ -187,8 +110,24 @@
                             ctx.fillText(`${annotation.class} (${(annotation.confidence * 100).toFixed(1)}%)`,
                                 annotation.x, annotation.y - 5);
                         });
+
+                        // Формуємо і відображаємо JSON
+                        const predictions = data.annotations.map(annotation => ({
+                            class: annotation.class,
+                            confidence: annotation.confidence,
+                            bbox: {
+                                x: annotation.x,
+                                y: annotation.y,
+                                width: annotation.width,
+                                height: annotation.height
+                            }
+                        }));
+                        const jsonOutput = JSON.stringify({ predictions }, null, 2);
+                        predictionsContainer.innerHTML = `<pre>${jsonOutput}</pre>`;
+                    } else {
+                        predictionsContainer.innerHTML = 'Немає прогнозів...';
                     }
-                    debug.textContent = 'Received stats and annotations';
+                    debug.textContent = 'Received stats, annotations, and predictions';
                 } catch (e) {
                     console.error('Message not JSON:', event.data);
                     debug.textContent = `Received error: ${event.data}`;
@@ -203,5 +142,4 @@
             debug.textContent = 'Stream stopped';
         }
     </script>
-</body>
-</html>
+{% endblock %}

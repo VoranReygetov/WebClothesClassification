@@ -22,7 +22,6 @@ except Exception as e:
     logger.error(f"Failed to load YOLO model: {e}")
     raise RuntimeError(f"Failed to load model: {e}")
 
-# ... (збережено попередні імпорти та ініціалізацію моделі)
 
 def run_detection_stream(frame, presence_counter=None, total_detections=0):
     if presence_counter is None:

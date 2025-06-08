@@ -64,7 +64,7 @@ def detect_video(request):
 
             result = analyze_video(video_path)
             summary_data = result
-            result_path = result["video_name"]
+            result_path = result["video_path"]
 
             table_data = []
             for class_name, total in summary_data['summary'].items():
@@ -82,7 +82,8 @@ def detect_video(request):
                         })
                 table_data.append(row)
 
-            context['video_url'] = '/' + result_path.replace('\\', '/')
+            rel_path = os.path.relpath(result_path, settings.MEDIA_ROOT)
+            context['video_url'] = settings.MEDIA_URL + rel_path.replace('\\', '/')
             context['summary'] = table_data
             context['summary_json'] = json.dumps(summary_data, indent=2, ensure_ascii=False)
 
