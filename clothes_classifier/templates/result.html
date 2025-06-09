@@ -4,28 +4,32 @@
 {% block title %}Результат класифікації{% endblock %}
 
 {% block content %}
-    <h1>Результати класифікації</h1>
-
-    {% if result_url %}
-        <img src="{{ result_url }}" alt="Результат з анотаціями">
-    {% endif %}
-
-    <div class="switch-container">
-        <span class="switch-label">JSON-вивід</span>
-        <label class="toggle-switch">
-            <input type="checkbox" id="outputToggle">
-            <span class="slider"></span>
-        </label>
+<div class="result-container">
+    <div class="image-container">
+        {% if result_url %}
+            <img src="{{ result_url }}" alt="Результат з анотаціями">
+        {% endif %}
     </div>
 
-    <div id="outputText">
-        <strong>Помічені речі:</strong>
-        <ul>
-            {% for item in predictions %}
-                <li>{{ item.class }} ({{ item.confidence|floatformat:2 }})</li>
-            {% endfor %}
-        </ul>
-    </div>
+    <div class="output-container">
+        <div class="switch-container">
+            <span class="switch-label">JSON-вивід</span>
+            <label class="toggle-switch">
+                <input type="checkbox" id="outputToggle">
+                <span class="slider"></span>
+            </label>
+        </div>
 
-    <pre id="jsonOutput" style="display:none;">{{ predictions|safe|json_script:"predictions-data" }}</pre>
+        <div id="outputText">
+            <strong>Помічені речі:</strong>
+            <ul>
+                {% for item in predictions %}
+                    <li>{{ item.class }} ({{ item.confidence|floatformat:2 }})</li>
+                {% endfor %}
+            </ul>
+        </div>
+
+        <pre id="jsonOutput" style="display:none;">{{ predictions|safe|json_script:"predictions-data" }}</pre>
+    </div>
+</div>
 {% endblock %}

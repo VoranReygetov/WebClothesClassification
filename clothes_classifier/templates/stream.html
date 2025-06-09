@@ -4,19 +4,24 @@
 {% block title %}Живий стрім{% endblock %}
 
 {% block content %}
-    <div class="video-container">
+<div class="stream-container">
+    <div class="video-section">
         <h1>Реальний час: Класифікація одягу</h1>
-        <video id="video" style="max-height: 550px;" autoplay playsinline></video>
-        <canvas id="annotationCanvas"></canvas> <!-- Залишаємо canvas для малювання -->
+        <div class="video-wrapper">
+            <video id="video" autoplay playsinline></video>
+            <canvas id="annotationCanvas"></canvas>
+        </div>
         <button onclick="stopStream()">Зупинити</button>
         <div id="debug">Initializing...</div>
     </div>
-    <div class="stats-container">
+
+    <div class="stats-section">
         <div class="stats-title">Загальна статистика</div>
         <div id="summary-stats">Очікування даних...</div>
         <div class="stats-title">Поточний кадр</div>
-        <div id="predictions-container">Очікування прогнозів...</div> <!-- Контейнер для JSON -->
+        <div id="predictions-container">Очікування прогнозів...</div>
     </div>
+</div>
 {% endblock %}
 
 {% block extra_scripts %}
