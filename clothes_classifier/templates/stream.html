@@ -25,6 +25,7 @@
 {% endblock %}
 
 {% block extra_scripts %}
+    <script src="https://cdn.jsdelivr.net/npm/onnxjs/dist/onnx.min.js"></script>
     <script>
         const video = document.getElementById('video');
         const annotationCanvas = document.getElementById('annotationCanvas');
@@ -33,115 +34,114 @@
         const predictionsContainer = document.getElementById('predictions-container');
         const debug = document.getElementById('debug');
 
-        // WebSocket connection
-        const ws = new WebSocket(`ws://${window.location.host}/ws/stream/`);
+        // Завантаження моделі ONNX
+        let session;
+        async function loadModel() {
+            try {
+                session = new onnx.InferenceSession();
+                await session.loadModel('/static/models/best.onnx');
+                debug.textContent = 'Model loaded successfully';
+            } catch (e) {
+                console.error('Model loading error:', e);
+                debug.textContent = 'Error loading model: ' + e.message;
+            }
+        }
+        loadModel();
 
-        ws.onopen = () => {
-            console.log('WebSocket connected');
-            debug.textContent = 'WebSocket connected';
-        };
-        ws.onerror = (error) => {
-            console.error('WebSocket error:', error);
-            debug.textContent = 'WebSocket error: check console';
-        };
-        ws.onclose = () => {
-            debug.textContent = 'WebSocket closed';
-        };
-
-        // Webcam access and display
+        // Доступ до вебкамери та обробка кадрів
         navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 640 } })
             .then(stream => {
                 video.srcObject = stream;
                 debug.textContent = 'Webcam accessed';
-                setInterval(() => {
-                    if (!video.videoWidth) return;
+                const processFrame = async () => {
+                    if (!video.videoWidth || !session) return;
+
                     const tempCanvas = document.createElement('canvas');
                     tempCanvas.width = 640;
                     tempCanvas.height = 640;
                     const tempCtx = tempCanvas.getContext('2d');
                     tempCtx.drawImage(video, 0, 0, 640, 640);
-                    const dataUrl = tempCanvas.toDataURL('image/jpeg', 0.7);
-                    const base64Data = dataUrl.split(',')[1];
-                    if (ws.readyState === WebSocket.OPEN) {
-                        ws.send(base64Data);
+
+                    // Підготовка зображення для моделі
+                    const imageData = tempCtx.getImageData(0, 0, 640, 640);
+                    const inputTensor = new onnx.Tensor(new Float32Array(imageData.data.length / 4 * 3), 'float32', [1, 3, 640, 640]);
+                    for (let i = 0; i < imageData.data.length; i += 4) {
+                        inputTensor.data[i / 4 * 3] = imageData.data[i] / 255.0;     // R
+                        inputTensor.data[i / 4 * 3 + 1] = imageData.data[i + 1] / 255.0; // G
+                        inputTensor.data[i / 4 * 3 + 2] = imageData.data[i + 2] / 255.0; // B
                     }
-                }, 333);
+
+                    // Виконання інференсу
+                    const outputMap = await session.run([inputTensor]);
+                    const outputTensor = outputMap.values().next().value; // Адаптуйте за структурою вашої моделі YOLO
+                    processOutput(outputTensor);
+
+                    requestAnimationFrame(processFrame);
+                };
+                requestAnimationFrame(processFrame);
             })
             .catch(err => {
                 console.error('Webcam error:', err);
                 debug.textContent = 'Webcam error: ' + err.message;
             });
 
-        ws.onmessage = event => {
-            if (event.data instanceof Blob) {
-                const reader = new FileReader();
-                reader.onload = function() {
-                    const arrayBuffer = reader.result;
-                    const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
-                    console.log('Received processed frame');
-                    debug.textContent = 'Received frame';
-                };
-                reader.onerror = () => {
-                    debug.textContent = 'Error reading Blob';
-                };
-                reader.readAsArrayBuffer(event.data);
-            } else {
-                try {
-                    const data = JSON.parse(event.data);
-                    if (data.error) {
-                        debug.textContent = `Error: ${data.error}`;
-                        return;
-                    }
-                    if (data.summary) {
-                        summaryStats.innerHTML = Object.entries(data.summary)
-                            .map(([cls, percent]) => `<div class="stats-item">${cls}: ${percent}%</div>`)
-                            .join('');
-                    } else {
-                        summaryStats.innerHTML = 'Немає даних';
-                    }
-                    if (data.annotations) {
-                        // Малюємо анотації на canvas
-                        annotationCanvas.width = video.videoWidth;
-                        annotationCanvas.height = video.videoHeight;
-                        ctx.clearRect(0, 0, annotationCanvas.width, annotationCanvas.height);
-                        data.annotations.forEach(annotation => {
-                            ctx.beginPath();
-                            ctx.rect(annotation.x, annotation.y, annotation.width, annotation.height);
-                            ctx.lineWidth = 2;
-                            ctx.strokeStyle = 'red';
-                            ctx.stroke();
-                            ctx.fillStyle = 'white';
-                            ctx.font = '16px Arial';
-                            ctx.fillText(`${annotation.class} (${(annotation.confidence * 100).toFixed(1)}%)`,
-                                annotation.x, annotation.y - 5);
-                        });
-
-                        // Формуємо і відображаємо JSON
-                        const predictions = data.annotations.map(annotation => ({
-                            class: annotation.class,
-                            confidence: annotation.confidence,
-                            bbox: {
-                                x: annotation.x,
-                                y: annotation.y,
-                                width: annotation.width,
-                                height: annotation.height
-                            }
-                        }));
-                        const jsonOutput = JSON.stringify({ predictions }, null, 2);
-                        predictionsContainer.innerHTML = `<pre>${jsonOutput}</pre>`;
-                    } else {
-                        predictionsContainer.innerHTML = 'Немає прогнозів...';
-                    }
-                    debug.textContent = 'Received stats, annotations, and predictions';
-                } catch (e) {
-                    console.error('Message not JSON:', event.data);
-                    debug.textContent = `Received error: ${event.data}`;
+        // Обробка результатів моделі
+        function processOutput(outputTensor) {
+            const annotations = [];
+            for (let i = 0; i < outputTensor.dims[1]; i++) {
+                const confidence = outputTensor.data[i * 6 + 4]; // Індекс впевненості
+                if (confidence > 0.5) { // Поріг впевненості
+                    annotations.push({
+                        x: outputTensor.data[i * 6], // x-координата
+                        y: outputTensor.data[i * 6 + 1], // y-координата
+                        width: outputTensor.data[i * 6 + 2], // ширина
+                        height: outputTensor.data[i * 6 + 3], // висота
+                        classId: Math.floor(outputTensor.data[i * 6 + 5]), // ідентифікатор класу
+                        confidence: confidence
+                    });
                 }
             }
-        };
 
+            // Використання правильного порядку класів із names
+            const CLASS_NAMES = ['Shoe', 'Tshirt', 'dress', 'hoodie', 'jacket', 'pants', 'shirt', 'short', 'skirt', 'sweater', 'sweatshirt', 'top'];
+            const annotationsWithNames = annotations.map(a => ({
+                ...a,
+                class: CLASS_NAMES[a.classId] || `Unknown class ${a.classId}`
+            }));
+
+            // Малювання анотацій на canvas
+            annotationCanvas.width = video.videoWidth;
+            annotationCanvas.height = video.videoHeight;
+            ctx.clearRect(0, 0, annotationCanvas.width, annotationCanvas.height);
+            annotationsWithNames.forEach(annotation => {
+                ctx.beginPath();
+                ctx.rect(annotation.x, annotation.y, annotation.width, annotation.height);
+                ctx.lineWidth = 2;
+                ctx.strokeStyle = 'red';
+                ctx.stroke();
+                ctx.fillStyle = 'white';
+                ctx.font = '16px Arial';
+                ctx.fillText(`${annotation.class} (${(annotation.confidence * 100).toFixed(1)}%)`,
+                    annotation.x, annotation.y - 5);
+            });
+
+            // Статистика та JSON-вивід
+            const summary = {};
+            annotationsWithNames.forEach(a => summary[a.class] = (summary[a.class] || 0) + 1);
+            summaryStats.innerHTML = Object.entries(summary)
+                .map(([cls, count]) => `<div class="stats-item">${cls}: ${count} шт.</div>`)
+                .join('');
+            const predictions = annotationsWithNames.map(annotation => ({
+                class: annotation.class,
+                confidence: annotation.confidence,
+                bbox: { x: annotation.x, y: annotation.y, width: annotation.width, height: annotation.height }
+            }));
+            predictionsContainer.innerHTML = `<pre>${JSON.stringify({ predictions }, null, 2)}</pre>`;
+            debug.textContent = 'Processed frame';
+        }
+
+        // Зупинка стріму
         function stopStream() {
-            ws.close();
             video.srcObject?.getTracks().forEach(track => track.stop());
             ctx.clearRect(0, 0, annotationCanvas.width, annotationCanvas.height);
             debug.textContent = 'Stream stopped';
