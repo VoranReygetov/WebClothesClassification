@@ -1,150 +1,141 @@
-<!-- templates/stream.html -->
-{% extends 'base.html' %}
+{% extends "base.html" %}
+{% load static %}
 
-{% block title %}Живий стрім{% endblock %}
+{% block title %}Живий стрім - YOLOv8{% endblock %}
 
 {% block content %}
-<div class="stream-container">
+<div style="display:flex; justify-content:center; gap:20px;">
+    <!-- Відео та канва -->
     <div class="video-section">
         <h1>Реальний час: Класифікація одягу</h1>
-        <div class="video-wrapper">
-            <video id="video" autoplay playsinline></video>
-            <canvas id="annotationCanvas"></canvas>
+        <div class="wrapper" style="position: relative; width: 640px;">
+            <video id="video" autoplay playsinline width="640" height="640" style="border:1px solid #555;"></video>
+            <canvas id="canvas" width="640" height="640" style="position:absolute; top:0; left:0; border:1px solid #555;"></canvas>
         </div>
-        <button onclick="stopStream()">Зупинити</button>
-        <div id="debug">Initializing...</div>
+        <div style="text-align:center; margin-top:10px;">
+            <button id="startBtn" class="btn btn-primary">Start Webcam</button>
+        </div>
     </div>
 
-    <div class="stats-section">
-        <div class="stats-title">Загальна статистика</div>
-        <div id="summary-stats">Очікування даних...</div>
-        <div class="stats-title">Поточний кадр</div>
-        <div id="predictions-container">Очікування прогнозів...</div>
+    <!-- JSON панель -->
+    <div class="json-panel" style="width:400px; max-height:640px; overflow:auto; background:#222; padding:10px; border-radius:5px; font-family: monospace; color:#0f0;">
+        <h3>Latest Detections (JSON)</h3>
+        <pre id="detectionJSON">{}</pre>
     </div>
 </div>
 {% endblock %}
 
 {% block extra_scripts %}
-    <script>
-        const video = document.getElementById('video');
-        const annotationCanvas = document.getElementById('annotationCanvas');
-        const ctx = annotationCanvas.getContext('2d');
-        const summaryStats = document.getElementById('summary-stats');
-        const predictionsContainer = document.getElementById('predictions-container');
-        const debug = document.getElementById('debug');
+<script src="https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js"></script>
+<script>
+const MODEL_PATH = "{% static 'models/best.onnx' %}";
+const MODEL_INPUT_SHAPE = [1,3,640,640];
+const CONF_THRESHOLD = 0.4;
+const IOU_THRESHOLD = 0.45;
 
-        // WebSocket connection
-        const ws = new WebSocket(`ws://${window.location.host}/ws/stream/`);
+const CLASS_NAMES = {0:'Shoe',1:'Tshirt',2:'Dress',3:'Hoodie',4:'Jacket',5:'Pants',6:'Shirt',7:'Short',8:'Skirt',9:'Sweater',10:'Sweatshirt',11:'Top'};
+const CLASS_COLORS = ['#FF3838','#FF9D97','#FF701F','#FFB21D','#CFD231','#48F90A','#92CC17','#3DDB86','#1A9334','#00D4BB','#2C99A8','#00C2FF'];
 
-        ws.onopen = () => {
-            console.log('WebSocket connected');
-            debug.textContent = 'WebSocket connected';
-        };
-        ws.onerror = (error) => {
-            console.error('WebSocket error:', error);
-            debug.textContent = 'WebSocket error: check console';
-        };
-        ws.onclose = () => {
-            debug.textContent = 'WebSocket closed';
-        };
+let session, isDetecting=false, latestBoxes=[];
+let video, canvas, ctx, tempCanvas, tempCtx, detectionJSON;
 
-        // Webcam access and display
-        navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 640 } })
-            .then(stream => {
-                video.srcObject = stream;
-                debug.textContent = 'Webcam accessed';
-                setInterval(() => {
-                    if (!video.videoWidth) return;
-                    const tempCanvas = document.createElement('canvas');
-                    tempCanvas.width = 640;
-                    tempCanvas.height = 640;
-                    const tempCtx = tempCanvas.getContext('2d');
-                    tempCtx.drawImage(video, 0, 0, 640, 640);
-                    const dataUrl = tempCanvas.toDataURL('image/jpeg', 0.7);
-                    const base64Data = dataUrl.split(',')[1];
-                    if (ws.readyState === WebSocket.OPEN) {
-                        ws.send(base64Data);
-                    }
-                }, 333);
-            })
-            .catch(err => {
-                console.error('Webcam error:', err);
-                debug.textContent = 'Webcam error: ' + err.message;
-            });
+async function setupWebcam() {
+    video=document.getElementById('video');
+    const stream=await navigator.mediaDevices.getUserMedia({video:{width:640,height:640}});
+    video.srcObject=stream;
+    return new Promise(resolve=>video.onloadedmetadata=()=>resolve());
+}
 
-        ws.onmessage = event => {
-            if (event.data instanceof Blob) {
-                const reader = new FileReader();
-                reader.onload = function() {
-                    const arrayBuffer = reader.result;
-                    const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
-                    console.log('Received processed frame');
-                    debug.textContent = 'Received frame';
-                };
-                reader.onerror = () => {
-                    debug.textContent = 'Error reading Blob';
-                };
-                reader.readAsArrayBuffer(event.data);
-            } else {
-                try {
-                    const data = JSON.parse(event.data);
-                    if (data.error) {
-                        debug.textContent = `Error: ${data.error}`;
-                        return;
-                    }
-                    if (data.summary) {
-                        summaryStats.innerHTML = Object.entries(data.summary)
-                            .map(([cls, percent]) => `<div class="stats-item">${cls}: ${percent}%</div>`)
-                            .join('');
-                    } else {
-                        summaryStats.innerHTML = 'Немає даних';
-                    }
-                    if (data.annotations) {
-                        // Малюємо анотації на canvas
-                        annotationCanvas.width = video.videoWidth;
-                        annotationCanvas.height = video.videoHeight;
-                        ctx.clearRect(0, 0, annotationCanvas.width, annotationCanvas.height);
-                        data.annotations.forEach(annotation => {
-                            ctx.beginPath();
-                            ctx.rect(annotation.x, annotation.y, annotation.width, annotation.height);
-                            ctx.lineWidth = 2;
-                            ctx.strokeStyle = 'red';
-                            ctx.stroke();
-                            ctx.fillStyle = 'white';
-                            ctx.font = '16px Arial';
-                            ctx.fillText(`${annotation.class} (${(annotation.confidence * 100).toFixed(1)}%)`,
-                                annotation.x, annotation.y - 5);
-                        });
+async function loadModel() {
+    session=await ort.InferenceSession.create(MODEL_PATH,{executionProviders:['webgpu']});
+    console.log('Model loaded');
+}
 
-                        // Формуємо і відображаємо JSON
-                        const predictions = data.annotations.map(annotation => ({
-                            class: annotation.class,
-                            confidence: annotation.confidence,
-                            bbox: {
-                                x: annotation.x,
-                                y: annotation.y,
-                                width: annotation.width,
-                                height: annotation.height
-                            }
-                        }));
-                        const jsonOutput = JSON.stringify({ predictions }, null, 2);
-                        predictionsContainer.innerHTML = `<pre>${jsonOutput}</pre>`;
-                    } else {
-                        predictionsContainer.innerHTML = 'Немає прогнозів...';
-                    }
-                    debug.textContent = 'Received stats, annotations, and predictions';
-                } catch (e) {
-                    console.error('Message not JSON:', event.data);
-                    debug.textContent = `Received error: ${event.data}`;
-                }
-            }
-        };
+function preprocess() {
+    tempCtx.drawImage(video,0,0,MODEL_INPUT_SHAPE[2],MODEL_INPUT_SHAPE[3]);
+    const imgData=tempCtx.getImageData(0,0,MODEL_INPUT_SHAPE[2],MODEL_INPUT_SHAPE[3]).data;
+    const red=[],green=[],blue=[];
+    for(let i=0;i<imgData.length;i+=4){
+        red.push(imgData[i]/255); green.push(imgData[i+1]/255); blue.push(imgData[i+2]/255);
+    }
+    return new ort.Tensor('float32', new Float32Array([...red,...green,...blue]), MODEL_INPUT_SHAPE);
+}
 
-        function stopStream() {
-            ws.close();
-            video.srcObject?.getTracks().forEach(track => track.stop());
-            ctx.clearRect(0, 0, annotationCanvas.width, annotationCanvas.height);
-            debug.textContent = 'Stream stopped';
+function sigmoid(x){return 1/(1+Math.exp(-x));}
+
+function iou(a,b){
+    const [x1a,y1a,x2a,y2a]=a.box; const [x1b,y1b,x2b,y2b]=b.box;
+    const interX=Math.max(0,Math.min(x2a,x2b)-Math.max(x1a,x1b));
+    const interY=Math.max(0,Math.min(y2a,y2b)-Math.max(y1a,y1b));
+    const inter=interX*interY; const areaA=(x2a-x1a)*(y2a-y1a); const areaB=(x2b-x1b)*(y2b-y1b);
+    return inter/(areaA+areaB-inter);
+}
+
+function nonMaxSuppression(boxes){
+    boxes.sort((a,b)=>b.confidence-a.confidence);
+    const selected=[];
+    while(boxes.length>0){
+        const best=boxes.shift(); selected.push(best);
+        boxes=boxes.filter(b=>iou(best,b)<IOU_THRESHOLD);
+    }
+    return selected;
+}
+
+async function detectFrame(){
+    if(!isDetecting) return;
+    const input=preprocess();
+    const results=await session.run({'images':input});
+    const output=results.output0.data;
+    const numClasses=Object.keys(CLASS_NAMES).length;
+    const numBoxes=8400;
+    const boxes=[];
+    for(let i=0;i<numBoxes;i++){
+        let maxScore=0,classId=-1;
+        for(let j=0;j<numClasses;j++){
+            const score=output[i+(4+j)*numBoxes];
+            if(score>maxScore){maxScore=score; classId=j;}
         }
-    </script>
+        if(maxScore>CONF_THRESHOLD){
+            const cx=output[i]; const cy=output[i+numBoxes];
+            const w=output[i+2*numBoxes]; const h=output[i+3*numBoxes];
+            boxes.push({classId,confidence:maxScore,box:[cx-w/2,cy-h/2,cx+w/2,cy+h/2]});
+        }
+    }
+    latestBoxes=nonMaxSuppression(boxes);
+    // Оновлюємо JSON панель
+    if(detectionJSON) detectionJSON.textContent = JSON.stringify(latestBoxes, null, 2);
+}
+
+function drawBoxes(){
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    ctx.drawImage(video,0,0,canvas.width,canvas.height);
+    const scaleX = canvas.width / MODEL_INPUT_SHAPE[2];
+    const scaleY = canvas.height / MODEL_INPUT_SHAPE[3];
+    latestBoxes.forEach(b=>{
+        const [x1,y1,x2,y2]=b.box;
+        const color=CLASS_COLORS[b.classId%CLASS_COLORS.length];
+        ctx.strokeStyle=color; ctx.lineWidth=2; ctx.strokeRect(x1*scaleX,y1*scaleY,(x2-x1)*scaleX,(y2-y1)*scaleY);
+        ctx.fillStyle=color; ctx.font='16px Arial';
+        const label=`${CLASS_NAMES[b.classId]} ${(b.confidence*100).toFixed(1)}%`;
+        ctx.fillText(label,x1*scaleX,y1*scaleY-4);
+    });
+}
+
+function renderLoop(){ drawBoxes(); if(isDetecting) requestAnimationFrame(renderLoop); }
+
+async function detectionLoop(){ while(isDetecting){ await detectFrame(); await new Promise(r=>setTimeout(r,100)); } }
+
+document.getElementById('startBtn').addEventListener('click',async()=>{
+    if(isDetecting){
+        isDetecting=false; video.srcObject.getTracks().forEach(t=>t.stop()); return;
+    }
+    await setupWebcam();
+    canvas=document.getElementById('canvas'); ctx=canvas.getContext('2d');
+    tempCanvas=document.createElement('canvas'); tempCanvas.width=MODEL_INPUT_SHAPE[2]; tempCanvas.height=MODEL_INPUT_SHAPE[3]; tempCtx=tempCanvas.getContext('2d');
+    detectionJSON=document.getElementById('detectionJSON');
+    await loadModel();
+    isDetecting=true;
+    renderLoop(); detectionLoop();
+});
+</script>
 {% endblock %}
